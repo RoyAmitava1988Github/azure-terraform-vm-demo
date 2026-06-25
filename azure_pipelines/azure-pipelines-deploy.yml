@@ -18,10 +18,10 @@ variables:
 
 stages:
 
-# =========================================================
+# ==========================================================
 # Stage 1 - Validate
 # Runs for both PR and merge to main
-# =========================================================
+# ==========================================================
 - stage: Validate
   displayName: 'Terraform Validate'
   jobs:
@@ -49,10 +49,10 @@ stages:
           terraform fmt -check -recursive
           terraform validate
 
-# =========================================================
+# ==========================================================
 # Stage 2 - Plan
 # Runs for both PR and merge to main
-# =========================================================
+# ==========================================================
 - stage: Plan
   displayName: 'Terraform Plan'
   dependsOn: Validate
