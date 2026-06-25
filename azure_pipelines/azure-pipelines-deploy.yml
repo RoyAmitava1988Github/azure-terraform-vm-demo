@@ -3,17 +3,25 @@ trigger:
     include:
       - main
 
-pr: none
+pr:
+  branches:
+    include:
+      - main
 
 pool:
   vmImage: 'ubuntu-latest'
 
 variables:
   terraformVersion: '1.9.8'
-  workingDirectory: 'env/dev'
+  workingDirectory: 'envs/dev'
   serviceConnection: 'sc-identity-federation'
 
 stages:
+
+# =========================================================
+# Stage 1 - Validate
+# Runs for both PR and merge to main
+# =========================================================
 - stage: Validate
   displayName: 'Terraform Validate'
   jobs:
@@ -28,7 +36,7 @@ stages:
         terraformVersion: '$(terraformVersion)'
 
     - task: AzureCLI@2
-      displayName: 'Terraform Init and Validate'
+      displayName: 'Terraform Init / Fmt / Validate'
       inputs:
         azureSubscription: '$(serviceConnection)'
         scriptType: bash
@@ -36,13 +44,19 @@ stages:
         inlineScript: |
           set -e
           cd $(workingDirectory)
-          terraform init -backend-config=backend.hcl
+
+          terraform init
           terraform fmt -check -recursive
           terraform validate
 
+# =========================================================
+# Stage 2 - Plan
+# Runs for both PR and merge to main
+# =========================================================
 - stage: Plan
   displayName: 'Terraform Plan'
   dependsOn: Validate
+  condition: succeeded()
   jobs:
   - job: Plan
     displayName: 'Plan Terraform'
@@ -63,7 +77,8 @@ stages:
         inlineScript: |
           set -e
           cd $(workingDirectory)
-          terraform init -backend-config=backend.hcl
+
+          terraform init
           terraform plan -var-file=terraform.tfvars -out=tfplan
 
     - task: PublishPipelineArtifact@1
@@ -73,10 +88,19 @@ stages:
         artifact: 'tfplan'
         publishLocation: 'pipeline'
 
+# =========================================================
+# Stage 3 - Apply
+# Runs ONLY when code is merged/pushed to main
+# Does NOT run for Pull Requests
+# =========================================================
 - stage: Apply
   displayName: 'Terraform Apply'
   dependsOn: Plan
-  condition: succeeded()
+  condition: and(
+    succeeded(),
+    ne(variables['Build.Reason'], 'PullRequest'),
+    eq(variables['Build.SourceBranch'], 'refs/heads/main')
+  )
   jobs:
   - deployment: ApplyDeployment
     displayName: 'Apply Terraform'
@@ -104,6 +128,7 @@ stages:
               inlineScript: |
                 set -e
                 cd $(workingDirectory)
-                terraform init -backend-config=backend.hcl
+
+                terraform init
                 cp $(Pipeline.Workspace)/tfplan/tfplan ./tfplan
                 terraform apply -auto-approve tfplan
