@@ -1,41 +1,177 @@
-# =========================================================
-# Stage 3 - Apply
-# Runs ONLY when code is merged/pushed to main
-# =========================================================
-- stage: Apply
-  displayName: 'Terraform Apply'
-  dependsOn: Plan
-  condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  terraformVersion: "1.9.8"
+  workingDirectory: "envs/dev"
+  serviceConnection: "sc-identity-federation"
+
+stages:
+
+#=========================================================
+# Stage 1 - Validate
+#=========================================================
+- stage: Validate
+  displayName: "Terraform Validate"
 
   jobs:
-  - deployment: ApplyDeployment
-    displayName: 'Apply Terraform'
+  - job: Validate
 
-    environment:
-      name: dev-azure-apply
+    steps:
+
+    - checkout: self
+
+    - task: AzureCLI@2
+      displayName: "Azure Login & Terraform Validate"
+
+      inputs:
+        azureSubscription: $(serviceConnection)
+        scriptType: bash
+        scriptLocation: inlineScript
+
+        inlineScript: |
+
+          set -e
+
+          echo "Installing Terraform..."
+
+          wget https://releases.hashicorp.com/terraform/$(terraformVersion)/terraform_$(terraformVersion)_linux_amd64.zip
+
+          unzip terraform_$(terraformVersion)_linux_amd64.zip
+
+          sudo mv terraform /usr/local/bin/
+
+          terraform version
+
+          cd $(workingDirectory)
+
+          terraform init
+
+          terraform fmt -check -recursive
+
+          terraform validate
+
+#=========================================================
+# Stage 2 - Plan
+#=========================================================
+- stage: Plan
+
+  displayName: "Terraform Plan"
+
+  dependsOn: Validate
+
+  condition: succeeded()
+
+  jobs:
+
+  - job: Plan
+
+    steps:
+
+    - checkout: self
+
+    - task: AzureCLI@2
+      displayName: "Terraform Plan"
+
+      inputs:
+        azureSubscription: $(serviceConnection)
+        scriptType: bash
+        scriptLocation: inlineScript
+
+        inlineScript: |
+
+          set -e
+
+          if ! command -v terraform &> /dev/null
+          then
+            wget https://releases.hashicorp.com/terraform/$(terraformVersion)/terraform_$(terraformVersion)_linux_amd64.zip
+            unzip terraform_$(terraformVersion)_linux_amd64.zip
+            sudo mv terraform /usr/local/bin/
+          fi
+
+          terraform version
+
+          cd $(workingDirectory)
+
+          terraform init
+
+          terraform plan \
+            -var-file=terraform.tfvars \
+            -out=tfplan
+
+    - task: PublishPipelineArtifact@1
+      displayName: "Publish Terraform Plan"
+
+      inputs:
+        targetPath: "$(workingDirectory)/tfplan"
+        artifact: "tfplan"
+
+#=========================================================
+# Stage 3 - Apply
+#=========================================================
+- stage: Apply
+
+  displayName: "Terraform Apply"
+
+  dependsOn: Plan
+
+  condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'))
+
+  jobs:
+
+  - deployment: Apply
+
+    displayName: "Terraform Apply"
+
+    environment: "dev-azure-apply"
 
     strategy:
-      runOnce:
-        deploy:
-          steps:
-          - checkout: self
 
-          - task: TerraformInstaller@1
-            displayName: 'Install Terraform'
-            inputs:
-              terraformVersion: $(terraformVersion)
+      runOnce:
+
+        deploy:
+
+          steps:
+
+          - checkout: self
 
           - download: current
             artifact: tfplan
 
           - task: AzureCLI@2
-            displayName: 'Terraform Apply'
+
+            displayName: "Terraform Apply"
+
             inputs:
+
               azureSubscription: $(serviceConnection)
+
               scriptType: bash
+
               scriptLocation: inlineScript
+
               inlineScript: |
+
                 set -e
+
+                if ! command -v terraform &> /dev/null
+                then
+                  wget https://releases.hashicorp.com/terraform/$(terraformVersion)/terraform_$(terraformVersion)_linux_amd64.zip
+                  unzip terraform_$(terraformVersion)_linux_amd64.zip
+                  sudo mv terraform /usr/local/bin/
+                fi
+
+                terraform version
 
                 cd $(workingDirectory)
 
