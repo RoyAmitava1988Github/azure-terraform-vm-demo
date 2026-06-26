@@ -35,11 +35,19 @@ The pipeline uses these Terraform authentication environment variables from `Azu
 
 ## Dev deployment values
 
-Before running a real deployment, update [envs/dev/terraform.tfvars](envs/dev/terraform.tfvars):
+Before running a real deployment, confirm the subscription ID, region, resource names, VM size, and tags in [envs/dev/terraform.tfvars](envs/dev/terraform.tfvars).
 
-- Replace `PASTE-YOUR-SSH-PUBLIC-KEY-HERE` with a real OpenSSH public key.
-- Replace `YOUR_PUBLIC_IP/32` with your public IP in CIDR format, for example `203.0.113.10/32`.
-- Confirm the subscription ID, region, resource names, VM size, and tags.
+For Azure DevOps deployments, create these pipeline variables:
+
+- `sshPublicKey`: your real OpenSSH public key, for example the contents of `id_rsa.pub` or `id_ed25519.pub`.
+- `allowedSshSourceIp`: your public IP in CIDR format, for example `203.0.113.10/32`.
+
+The pipeline passes those values to Terraform during `plan`, so you do not need to commit personal SSH access values into `terraform.tfvars`.
+
+For local deployments, replace these placeholders in [envs/dev/terraform.tfvars](envs/dev/terraform.tfvars):
+
+- `PASTE-YOUR-SSH-PUBLIC-KEY-HERE`
+- `YOUR_PUBLIC_IP/32`
 
 Terraform validation now rejects the placeholder SSH key and placeholder SSH source IP during planning.
 

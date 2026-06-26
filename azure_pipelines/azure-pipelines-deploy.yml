@@ -72,6 +72,9 @@ stages:
 
     - task: AzureCLI@2
       displayName: "Terraform plan"
+      env:
+        PIPELINE_SSH_PUBLIC_KEY: "$(sshPublicKey)"
+        PIPELINE_ALLOWED_SSH_SOURCE_IP: "$(allowedSshSourceIp)"
       inputs:
         azureSubscription: "$(serviceConnection)"
         addSpnToEnvironment: true
@@ -97,12 +100,30 @@ stages:
           export ARM_USE_OIDC=true
           export ARM_OIDC_TOKEN="$idToken"
 
+          validate_pipeline_variables() {
+            if [ -z "${PIPELINE_SSH_PUBLIC_KEY:-}" ] || [[ "$PIPELINE_SSH_PUBLIC_KEY" == *'$('* ]] || [ "$PIPELINE_SSH_PUBLIC_KEY" = "PASTE-YOUR-SSH-PUBLIC-KEY-HERE" ]; then
+              echo "##vso[task.logissue type=error]Set Azure DevOps pipeline variable sshPublicKey to your real OpenSSH public key."
+              exit 1
+            fi
+
+            if [ -z "${PIPELINE_ALLOWED_SSH_SOURCE_IP:-}" ] || [[ "$PIPELINE_ALLOWED_SSH_SOURCE_IP" == *'$('* ]] || [ "$PIPELINE_ALLOWED_SSH_SOURCE_IP" = "YOUR_PUBLIC_IP/32" ]; then
+              echo "##vso[task.logissue type=error]Set Azure DevOps pipeline variable allowedSshSourceIp to your public IP in CIDR format, for example 203.0.113.10/32."
+              exit 1
+            fi
+          }
+
           install_terraform
+          validate_pipeline_variables
           terraform version
 
           cd "$(workingDirectory)"
           terraform init -input=false
-          terraform plan -input=false -var-file=terraform.tfvars -out=tfplan
+          terraform plan \
+            -input=false \
+            -var-file=terraform.tfvars \
+            -var="ssh_public_key=${PIPELINE_SSH_PUBLIC_KEY}" \
+            -var="allowed_ssh_source_ip=${PIPELINE_ALLOWED_SSH_SOURCE_IP}" \
+            -out=tfplan
 
     - task: PublishPipelineArtifact@1
       displayName: "Publish Terraform plan"
