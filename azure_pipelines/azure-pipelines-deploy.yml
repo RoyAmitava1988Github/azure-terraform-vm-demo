@@ -1,110 +1,19 @@
-trigger:
-  branches:
-    include:
-      - main
-
-pr:
-  branches:
-    include:
-      - main
-
-pool:
-  vmImage: 'ubuntu-latest'
-
-variables:
-  terraformVersion: '1.9.8'
-  workingDirectory: 'envs/dev'
-  serviceConnection: 'sc-identity-federation'
-
-stages:
-
-# ==========================================================
-# Stage 1 - Validate
-# Runs for both PR and merge to main
-# ==========================================================
-- stage: Validate
-  displayName: 'Terraform Validate'
-  jobs:
-  - job: Validate
-    displayName: 'Validate Terraform'
-    steps:
-    - checkout: self
-
-    - task: TerraformInstaller@1
-      displayName: 'Install Terraform'
-      inputs:
-        terraformVersion: '$(terraformVersion)'
-
-    - task: AzureCLI@2
-      displayName: 'Terraform Init / Fmt / Validate'
-      inputs:
-        azureSubscription: '$(serviceConnection)'
-        scriptType: bash
-        scriptLocation: inlineScript
-        inlineScript: |
-          set -e
-          cd $(workingDirectory)
-
-          terraform init
-          terraform fmt -check -recursive
-          terraform validate
-
-# ==========================================================
-# Stage 2 - Plan
-# Runs for both PR and merge to main
-# ==========================================================
-- stage: Plan
-  displayName: 'Terraform Plan'
-  dependsOn: Validate
-  condition: succeeded()
-  jobs:
-  - job: Plan
-    displayName: 'Plan Terraform'
-    steps:
-    - checkout: self
-
-    - task: TerraformInstaller@1
-      displayName: 'Install Terraform'
-      inputs:
-        terraformVersion: '$(terraformVersion)'
-
-    - task: AzureCLI@2
-      displayName: 'Terraform Plan'
-      inputs:
-        azureSubscription: '$(serviceConnection)'
-        scriptType: bash
-        scriptLocation: inlineScript
-        inlineScript: |
-          set -e
-          cd $(workingDirectory)
-
-          terraform init
-          terraform plan -var-file=terraform.tfvars -out=tfplan
-
-    - task: PublishPipelineArtifact@1
-      displayName: 'Publish tfplan'
-      inputs:
-        targetPath: '$(workingDirectory)/tfplan'
-        artifact: 'tfplan'
-        publishLocation: 'pipeline'
-
 # =========================================================
 # Stage 3 - Apply
 # Runs ONLY when code is merged/pushed to main
-# Does NOT run for Pull Requests
 # =========================================================
 - stage: Apply
   displayName: 'Terraform Apply'
   dependsOn: Plan
-  condition: and(
-    succeeded(),
-    ne(variables['Build.Reason'], 'PullRequest'),
-    eq(variables['Build.SourceBranch'], 'refs/heads/main')
-  )
+  condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+
   jobs:
   - deployment: ApplyDeployment
     displayName: 'Apply Terraform'
-    environment: 'dev-azure-apply'
+
+    environment:
+      name: dev-azure-apply
+
     strategy:
       runOnce:
         deploy:
@@ -114,7 +23,7 @@ stages:
           - task: TerraformInstaller@1
             displayName: 'Install Terraform'
             inputs:
-              terraformVersion: '$(terraformVersion)'
+              terraformVersion: $(terraformVersion)
 
           - download: current
             artifact: tfplan
@@ -122,13 +31,16 @@ stages:
           - task: AzureCLI@2
             displayName: 'Terraform Apply'
             inputs:
-              azureSubscription: '$(serviceConnection)'
+              azureSubscription: $(serviceConnection)
               scriptType: bash
               scriptLocation: inlineScript
               inlineScript: |
                 set -e
+
                 cd $(workingDirectory)
 
                 terraform init
+
                 cp $(Pipeline.Workspace)/tfplan/tfplan ./tfplan
+
                 terraform apply -auto-approve tfplan
