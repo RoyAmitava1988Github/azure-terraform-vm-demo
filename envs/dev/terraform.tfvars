@@ -20,7 +20,7 @@ nic_name          = "nic-vm-linux-euw-dev-01"
 vm_public_ip_name = "pip-vm-linux-euw-dev-01"
 
 ssh_public_key        = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDLzr/9ElpYTHE/H+/VhMED+YLqdPC4ZWahqRj6W1Vfh azure-vm-admin"
-allowed_ssh_source_ip = "49.37.123.10/32"
+allowed_ssh_source_ip = "0.0.0.0/0"
 
 tags = {
   environment = "dev"
