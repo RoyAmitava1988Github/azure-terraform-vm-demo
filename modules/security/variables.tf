@@ -21,6 +21,11 @@ variable "subnet_id" {
 variable "allowed_ssh_source_ip" {
   description = "Allowed source IP for SSH in /32 format"
   type        = string
+
+  validation {
+    condition     = can(cidrhost(var.allowed_ssh_source_ip, 0)) && var.allowed_ssh_source_ip != "YOUR_PUBLIC_IP/32"
+    error_message = "allowed_ssh_source_ip must be a real CIDR block such as 203.0.113.10/32, not the placeholder value."
+  }
 }
 
 variable "tags" {

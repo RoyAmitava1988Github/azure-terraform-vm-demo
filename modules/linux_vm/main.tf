@@ -33,10 +33,11 @@ resource "azurerm_linux_virtual_machine" "this" {
   ]
 
   disable_password_authentication = true
+  custom_data                     = base64encode(local.cloud_init)
 
   admin_ssh_key {
     username   = var.admin_username
-    public_key = var.ssh_public_key
+    public_key = trimspace(var.ssh_public_key)
   }
 
   os_disk {
@@ -53,4 +54,20 @@ resource "azurerm_linux_virtual_machine" "this" {
   }
 
   tags = var.tags
+}
+
+locals {
+  cloud_init = "#cloud-config\n${yamlencode({
+    package_update  = true
+    package_upgrade = true
+    packages = [
+      "nginx",
+      "python3",
+      "python3-pip"
+    ]
+    runcmd = [
+      ["systemctl", "enable", "nginx"],
+      ["systemctl", "start", "nginx"]
+    ]
+  })}"
 }
