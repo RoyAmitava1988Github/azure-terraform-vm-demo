@@ -13,7 +13,7 @@ subnet_address_prefixes = ["10.20.1.0/24"]
 nsg_name = "nsg-app-euw-dev-01"
 
 vm_name           = "vm-linux-euw-dev-01"
-vm_size           = "Standard_B2s"
+vm_size           = "Standard_B1s"
 vm_admin_username = "azureuser"
 
 nic_name          = "nic-vm-linux-euw-dev-01"
