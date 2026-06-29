@@ -13,14 +13,14 @@ subnet_address_prefixes = ["10.20.1.0/24"]
 nsg_name = "nsg-app-euw-dev-01"
 
 vm_name           = "vm-linux-euw-dev-01"
-vm_size           = "Standard_B1s"
+vm_size           = "Standard_B1ms"
 vm_admin_username = "azureuser"
 
 nic_name          = "nic-vm-linux-euw-dev-01"
 vm_public_ip_name = "pip-vm-linux-euw-dev-01"
 
-ssh_public_key        = "PASTE-YOUR-SSH-PUBLIC-KEY-HERE"
-allowed_ssh_source_ip = "YOUR_PUBLIC_IP/32"
+ssh_public_key        = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDLzr/9ElpYTHE/H+/VhMED+YLqdPC4ZWahqRj6W1Vfh azure-vm-admin"
+allowed_ssh_source_ip = "49.37.123.10/32"
 
 tags = {
   environment = "dev"
