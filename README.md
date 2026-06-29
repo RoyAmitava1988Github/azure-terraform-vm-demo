@@ -76,3 +76,21 @@ terraform plan -input=false -var-file=terraform.tfvars
 ```
 
 On Windows ARM64, the AzureRM provider version selected by `~> 4.35` may not provide a compatible local provider package. The Azure DevOps pipeline runs on `ubuntu-latest` x64 and is the recommended validation path for this repository.
+## Production pipeline
+
+Production uses [azure_pipelines/azure-pipelines-prod.yml](azure_pipelines/azure-pipelines-prod.yml) and the Terraform root module in [envs/prod](envs/prod).
+
+Azure DevOps production setup:
+
+- Create a workload identity federation service connection named `sc-identity-federation-prod`.
+- Create a pipeline from `azure_pipelines/azure-pipelines-prod.yml`.
+- Create the environment `prod-azure-apply`.
+- Add an approval check to `prod-azure-apply` so every production apply pauses for approval.
+- Add these pipeline variables: `prodSubscriptionId`, `prodSshPublicKey`, and `prodAllowedSshSourceIp`.
+- Create the production Terraform backend before the first run: resource group `rg-tfstate-euw-prod-01`, storage account `sttfstateeuwprod01`, container `tfstate`.
+
+Production flow:
+
+- Pull request: `Validate` and `Plan` run against `envs/prod`; `Apply` is skipped.
+- Merge to `main`: `Validate` and `Plan` are skipped; `Apply` waits for `prod-azure-apply` approval, creates a fresh plan from `main`, then applies it.
+

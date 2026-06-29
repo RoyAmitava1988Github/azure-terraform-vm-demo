@@ -1,0 +1,217 @@
+trigger:
+  branches:
+    include:
+      - production
+
+pr:
+  branches:
+    include:
+      - production
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  terraformVersion: "1.9.8"
+  workingDirectory: "envs/prod"
+  serviceConnection: "sc-identity-federation-prod"
+
+stages:
+- stage: Validate
+  displayName: "Terraform Validate - Prod"
+  condition: eq(variables['Build.Reason'], 'PullRequest')
+  jobs:
+  - job: Validate
+    displayName: "Validate production Terraform"
+    steps:
+    - checkout: self
+
+    - task: AzureCLI@2
+      displayName: "Terraform fmt and validate"
+      inputs:
+        azureSubscription: "$(serviceConnection)"
+        addSpnToEnvironment: true
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          set -euo pipefail
+
+          install_terraform() {
+            if command -v terraform >/dev/null 2>&1 && terraform version | grep -q "Terraform v$(terraformVersion)"; then
+              return
+            fi
+
+            curl -fsSLo terraform.zip "https://releases.hashicorp.com/terraform/$(terraformVersion)/terraform_$(terraformVersion)_linux_amd64.zip"
+            unzip -o terraform.zip
+            sudo mv terraform /usr/local/bin/terraform
+            rm -f terraform.zip
+          }
+
+          export ARM_CLIENT_ID="$servicePrincipalId"
+          export ARM_TENANT_ID="$tenantId"
+          export ARM_SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
+          export ARM_USE_OIDC=true
+          export ARM_OIDC_TOKEN="$idToken"
+
+          install_terraform
+          terraform version
+          terraform fmt -check -recursive
+
+          cd "$(workingDirectory)"
+          terraform init -input=false
+          terraform validate
+
+- stage: Plan
+  displayName: "Terraform Plan - Prod"
+  dependsOn: Validate
+  condition: and(succeeded(), eq(variables['Build.Reason'], 'PullRequest'))
+  jobs:
+  - job: Plan
+    displayName: "Create production Terraform plan"
+    steps:
+    - checkout: self
+
+    - task: AzureCLI@2
+      displayName: "Terraform plan"
+      env:
+        PIPELINE_SUBSCRIPTION_ID: "$(prodSubscriptionId)"
+        PIPELINE_SSH_PUBLIC_KEY: "$(prodSshPublicKey)"
+        PIPELINE_ALLOWED_SSH_SOURCE_IP: "$(prodAllowedSshSourceIp)"
+      inputs:
+        azureSubscription: "$(serviceConnection)"
+        addSpnToEnvironment: true
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          set -euo pipefail
+
+          install_terraform() {
+            if command -v terraform >/dev/null 2>&1 && terraform version | grep -q "Terraform v$(terraformVersion)"; then
+              return
+            fi
+
+            curl -fsSLo terraform.zip "https://releases.hashicorp.com/terraform/$(terraformVersion)/terraform_$(terraformVersion)_linux_amd64.zip"
+            unzip -o terraform.zip
+            sudo mv terraform /usr/local/bin/terraform
+            rm -f terraform.zip
+          }
+
+          validate_pipeline_variables() {
+            if [ -z "${PIPELINE_SUBSCRIPTION_ID:-}" ] || [[ "$PIPELINE_SUBSCRIPTION_ID" == *'$('* ]] || [ "$PIPELINE_SUBSCRIPTION_ID" = "REPLACE-WITH-PROD-SUBSCRIPTION-ID" ]; then
+              echo "##vso[task.logissue type=error]Set Azure DevOps pipeline variable prodSubscriptionId to your production Azure subscription ID."
+              exit 1
+            fi
+
+            if [ -z "${PIPELINE_SSH_PUBLIC_KEY:-}" ] || [[ "$PIPELINE_SSH_PUBLIC_KEY" == *'$('* ]] || [ "$PIPELINE_SSH_PUBLIC_KEY" = "PASTE-YOUR-SSH-PUBLIC-KEY-HERE" ]; then
+              echo "##vso[task.logissue type=error]Set Azure DevOps pipeline variable prodSshPublicKey to your real production OpenSSH public key."
+              exit 1
+            fi
+
+            if [ -z "${PIPELINE_ALLOWED_SSH_SOURCE_IP:-}" ] || [[ "$PIPELINE_ALLOWED_SSH_SOURCE_IP" == *'$('* ]] || [ "$PIPELINE_ALLOWED_SSH_SOURCE_IP" = "YOUR_PUBLIC_IP/32" ]; then
+              echo "##vso[task.logissue type=error]Set Azure DevOps pipeline variable prodAllowedSshSourceIp to your production SSH source IP in CIDR format, for example 203.0.113.10/32."
+              exit 1
+            fi
+          }
+
+          export ARM_CLIENT_ID="$servicePrincipalId"
+          export ARM_TENANT_ID="$tenantId"
+          export ARM_SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
+          export ARM_USE_OIDC=true
+          export ARM_OIDC_TOKEN="$idToken"
+
+          install_terraform
+          validate_pipeline_variables
+          terraform version
+
+          cd "$(workingDirectory)"
+          terraform init -input=false
+          terraform plan \
+            -input=false \
+            -var-file=terraform.tfvars \
+            -var="subscription_id=${PIPELINE_SUBSCRIPTION_ID}" \
+            -var="ssh_public_key=${PIPELINE_SSH_PUBLIC_KEY}" \
+            -var="allowed_ssh_source_ip=${PIPELINE_ALLOWED_SSH_SOURCE_IP}" \
+            -out=tfplan
+
+    - task: PublishPipelineArtifact@1
+      displayName: "Publish production Terraform plan"
+      inputs:
+        targetPath: "$(workingDirectory)/tfplan"
+        artifact: "prod-tfplan"
+
+- stage: Apply
+  displayName: "Terraform Apply - Prod"
+  dependsOn: []
+  condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  jobs:
+  - deployment: Apply
+    displayName: "Apply production Terraform"
+    environment: "prod-azure-apply"
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
+
+          - task: AzureCLI@2
+            displayName: "Terraform apply"
+            env:
+              PIPELINE_SUBSCRIPTION_ID: "$(prodSubscriptionId)"
+              PIPELINE_SSH_PUBLIC_KEY: "$(prodSshPublicKey)"
+              PIPELINE_ALLOWED_SSH_SOURCE_IP: "$(prodAllowedSshSourceIp)"
+            inputs:
+              azureSubscription: "$(serviceConnection)"
+              addSpnToEnvironment: true
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+
+                install_terraform() {
+                  if command -v terraform >/dev/null 2>&1 && terraform version | grep -q "Terraform v$(terraformVersion)"; then
+                    return
+                  fi
+
+                  curl -fsSLo terraform.zip "https://releases.hashicorp.com/terraform/$(terraformVersion)/terraform_$(terraformVersion)_linux_amd64.zip"
+                  unzip -o terraform.zip
+                  sudo mv terraform /usr/local/bin/terraform
+                  rm -f terraform.zip
+                }
+
+                validate_pipeline_variables() {
+                  if [ -z "${PIPELINE_SUBSCRIPTION_ID:-}" ] || [[ "$PIPELINE_SUBSCRIPTION_ID" == *'$('* ]] || [ "$PIPELINE_SUBSCRIPTION_ID" = "REPLACE-WITH-PROD-SUBSCRIPTION-ID" ]; then
+                    echo "##vso[task.logissue type=error]Set Azure DevOps pipeline variable prodSubscriptionId to your production Azure subscription ID."
+                    exit 1
+                  fi
+
+                  if [ -z "${PIPELINE_SSH_PUBLIC_KEY:-}" ] || [[ "$PIPELINE_SSH_PUBLIC_KEY" == *'$('* ]] || [ "$PIPELINE_SSH_PUBLIC_KEY" = "PASTE-YOUR-SSH-PUBLIC-KEY-HERE" ]; then
+                    echo "##vso[task.logissue type=error]Set Azure DevOps pipeline variable prodSshPublicKey to your real production OpenSSH public key."
+                    exit 1
+                  fi
+
+                  if [ -z "${PIPELINE_ALLOWED_SSH_SOURCE_IP:-}" ] || [[ "$PIPELINE_ALLOWED_SSH_SOURCE_IP" == *'$('* ]] || [ "$PIPELINE_ALLOWED_SSH_SOURCE_IP" = "YOUR_PUBLIC_IP/32" ]; then
+                    echo "##vso[task.logissue type=error]Set Azure DevOps pipeline variable prodAllowedSshSourceIp to your production SSH source IP in CIDR format, for example 203.0.113.10/32."
+                    exit 1
+                  fi
+                }
+
+                export ARM_CLIENT_ID="$servicePrincipalId"
+                export ARM_TENANT_ID="$tenantId"
+                export ARM_SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
+                export ARM_USE_OIDC=true
+                export ARM_OIDC_TOKEN="$idToken"
+
+                install_terraform
+                validate_pipeline_variables
+                terraform version
+
+                cd "$(workingDirectory)"
+                terraform init -input=false
+                terraform plan \
+                  -input=false \
+                  -var-file=terraform.tfvars \
+                  -var="subscription_id=${PIPELINE_SUBSCRIPTION_ID}" \
+                  -var="ssh_public_key=${PIPELINE_SSH_PUBLIC_KEY}" \
+                  -var="allowed_ssh_source_ip=${PIPELINE_ALLOWED_SSH_SOURCE_IP}" \
+                  -out=tfplan
+                terraform apply -input=false -auto-approve tfplan
