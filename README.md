@@ -2,7 +2,7 @@
 
 This repository deploys an Ubuntu Linux VM on Azure with Terraform modules and an Azure DevOps pipeline.
 
-##### Resources
+####### Resources
 
 - Resource group
 - Virtual network and subnet
